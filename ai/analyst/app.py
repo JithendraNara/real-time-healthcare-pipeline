@@ -91,11 +91,17 @@ Available tables (dbt-duckdb schema prefix is `{schema}_<model_schema>`):
 - {schema}_omop.omcdm_drug_exposure (drug_exposure_id BIGINT PK, person_id FK, drug_concept_id, drug_exposure_start_date, drug_exposure_end_date, drug_source_value, drug_source_label, drug_code_type, reason_description)
 - {schema}_omop.omcdm_measurement (measurement_id BIGINT PK, person_id FK, measurement_concept_id, measurement_date, measurement_datetime, value_as_number, unit_source_value, measurement_category, measurement_source_value, measurement_source_label)
 - {schema}_marts.mart_member_roster (member_id, age_bucket, plan_type, enrollment_status, missing_zip, missing_email, child_overage_flag, days_enrolled, state)
+- {schema}_marts.mart_medication_adherence (person_id, drug_source_value, drug_source_label, fill_count, first_fill_date, last_fill_end_date, total_days_on_hand, observation_window_days, pdc_score, adherence_category)
+- {schema}_marts.mart_condition_drug_pairs (person_id, condition_source_value, condition_ccs_category, drug_source_value, drug_source_label, first_condition_onset, first_drug_for_condition, days_from_onset_to_drug, drug_fills_for_condition, treatment_lag_bucket)
 - {schema}_intermediate.int_member_months (member_id, age, plan_type, state, coverage_month, member_months, is_primary)
 
 ccs_category values include: infectious_disease, neoplasms, blood_disease, endocrine, mental_health, nervous_system, eye_disorder, ear_disorder, circulatory, respiratory, digestive, skin, musculoskeletal, genitourinary, pregnancy, perinatal, congenital, symptoms_signs, injury, external_cause, health_services, unmapped.
 
 measurement_category values include: vitals_bp, vitals_hr, vitals_temp, vitals_body, lab_metabolic, lab_renal, lab_hematology, lab_endocrine, other.
+
+adherence_category values include: adherent (pdc>=0.80), partially_adherent (0.60<=pdc<0.80), non_adherent (pdc<0.60).
+
+treatment_lag_bucket values include: same_day, within_week, within_month, within_quarter, after_quarter.
 
 Rules:
 - Use DuckDB SQL syntax (date_trunc, datediff, list, struct, etc.)
@@ -163,8 +169,8 @@ class CohortRequest(BaseModel):
         default_factory=dict,
         description=(
             "Cohort filters. Supported keys: min_age, max_age, gender_concept_id, "
-            "ccs_categories (list), drug_classes (list), measurement_categories (list), "
-            "min_visits, min_drugs, min_measurements, state (list)."
+            "ccs_categories, drug_classes, measurement_categories, adherence_categories, "
+            "min_pdc, min_visits, min_drugs, min_measurements, state."
         ),
     )
 
@@ -193,6 +199,8 @@ def schema() -> Dict[str, Any]:
             "omcdm_drug_exposure",
             "omcdm_measurement",
             "mart_member_roster",
+            "mart_medication_adherence",
+            "mart_condition_drug_pairs",
             "int_member_months",
         ],
     }
@@ -256,6 +264,7 @@ def cohort(req: CohortRequest) -> CohortResponse:
     s_drug = f"{DB_SCHEMA}_omop.omcdm_drug_exposure"
     s_meas = f"{DB_SCHEMA}_omop.omcdm_measurement"
     s_roster = f"{DB_SCHEMA}_marts.mart_member_roster"
+    s_adherence = f"{DB_SCHEMA}_marts.mart_medication_adherence"
 
     where_clauses = ["1=1"]
     if f.get("min_age") is not None:
@@ -281,6 +290,17 @@ def cohort(req: CohortRequest) -> CohortResponse:
         where_clauses.append(
             f"EXISTS (SELECT 1 FROM {s_meas} m "
             f"WHERE m.person_id = {s_person}.person_id AND m.measurement_category IN ({mcs}))"
+        )
+    if f.get("adherence_categories"):
+        acs = ", ".join(f"'{c}'" for c in f["adherence_categories"])
+        where_clauses.append(
+            f"EXISTS (SELECT 1 FROM {s_adherence} ad "
+            f"WHERE ad.person_id = {s_person}.person_id AND ad.adherence_category IN ({acs}))"
+        )
+    if f.get("min_pdc") is not None:
+        where_clauses.append(
+            f"EXISTS (SELECT 1 FROM {s_adherence} ad "
+            f"WHERE ad.person_id = {s_person}.person_id AND ad.pdc_score >= {float(f['min_pdc'])})"
         )
     if f.get("min_visits") is not None:
         where_clauses.append(
