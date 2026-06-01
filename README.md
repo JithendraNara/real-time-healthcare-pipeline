@@ -98,10 +98,12 @@ docker compose up -d
 | Table | Rows (typical) | Purpose |
 |-------|---------------|---------|
 | `omcdm_person` | 500+ (synthea) | OMOP-aligned demographics |
-| `omcdm_condition_occurrence` | 2,000+ | Patient × diagnosis events, with CCS category |
-| `omcdm_visit_occurrence` | 1,500+ | Patient × encounter events, by visit type |
+| `omcdm_condition_occurrence` | 1,700+ | Patient × diagnosis events, with CCS category |
+| `omcdm_visit_occurrence` | 1,300+ | Patient × encounter events, by visit type |
+| `omcdm_drug_exposure` | 1,700+ | Prescriptions / administered medications, with drug_code_type |
+| `omcdm_measurement` | 5,700+ | Vitals + labs, with measurement_category (vitals_bp / lab_metabolic / etc.) |
 | `mart_member_roster` | 500+ | Member-level fact table with DQ flags |
-| `int_member_months` | 5,000+ | Member-month grain for PMPM calculations |
+| `int_member_months` | 12,000+ | Member-month grain for PMPM calculations |
 | `icd10_to_ccs` | 30 | Python UDF — ICD-10 prefix → CCS category |
 
 All written as **Iceberg v3** tables in prod (partitioned by year), or as DuckDB tables in local dev.
@@ -194,7 +196,7 @@ vital-pipeline/
 | `condition_occurrence` | `omcdm_condition_occurrence` | + CCS category (Python UDF) |
 | `visit_occurrence` | `omcdm_visit_occurrence` | Visit concept by encounter class |
 
-**Not yet covered** (planned): drug_exposure, measurement, observation, death, payer_plan_period. Add them in a follow-up PR by following the same pattern in `dbt_project/models/omop/`.
+**Not yet covered** (planned): observation, death, payer_plan_period. Add them in a follow-up PR by following the same pattern in `dbt_project/models/omop/`. The `drug_exposure` and `measurement` tables were added in the v2 deepening — see commit history.
 
 ---
 

@@ -38,3 +38,26 @@ sources:
           - name: "start"
             tests: [not_null]
           - name: encounterclass
+
+      - name: medications
+        description: "Synthetic prescriptions (Synthea medications.csv)."
+        columns:
+          - name: patient_id
+            tests: [not_null]
+          - name: "start"
+            tests: [not_null]
+          - name: code
+          - name: description
+          - name: reasondescription
+
+      - name: observations
+        description: "Synthetic vitals + labs (Synthea observations.csv)."
+        columns:
+          - name: patient_id
+            tests: [not_null]
+          - name: "date"
+            tests: [not_null]
+          - name: code
+          - name: description
+          - name: value
+          - name: units

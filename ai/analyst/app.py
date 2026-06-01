@@ -88,16 +88,21 @@ Available tables (dbt-duckdb schema prefix is `{schema}_<model_schema>`):
 - {schema}_omop.omcdm_person (person_id BIGINT PK, person_source_value, gender_concept_id, birth_datetime, year_of_birth, race_concept_id, ethnicity_concept_id)
 - {schema}_omop.omcdm_condition_occurrence (condition_occurrence_id BIGINT PK, person_id FK, condition_concept_id, condition_start_date, condition_end_date, ccs_category, condition_source_value)
 - {schema}_omop.omcdm_visit_occurrence (visit_occurrence_id BIGINT PK, person_id FK, visit_concept_id, visit_start_date, visit_end_date, visit_source_label)
+- {schema}_omop.omcdm_drug_exposure (drug_exposure_id BIGINT PK, person_id FK, drug_concept_id, drug_exposure_start_date, drug_exposure_end_date, drug_source_value, drug_source_label, drug_code_type, reason_description)
+- {schema}_omop.omcdm_measurement (measurement_id BIGINT PK, person_id FK, measurement_concept_id, measurement_date, measurement_datetime, value_as_number, unit_source_value, measurement_category, measurement_source_value, measurement_source_label)
 - {schema}_marts.mart_member_roster (member_id, age_bucket, plan_type, enrollment_status, missing_zip, missing_email, child_overage_flag, days_enrolled, state)
 - {schema}_intermediate.int_member_months (member_id, age, plan_type, state, coverage_month, member_months, is_primary)
 
 ccs_category values include: infectious_disease, neoplasms, blood_disease, endocrine, mental_health, nervous_system, eye_disorder, ear_disorder, circulatory, respiratory, digestive, skin, musculoskeletal, genitourinary, pregnancy, perinatal, congenital, symptoms_signs, injury, external_cause, health_services, unmapped.
+
+measurement_category values include: vitals_bp, vitals_hr, vitals_temp, vitals_body, lab_metabolic, lab_renal, lab_hematology, lab_endocrine, other.
 
 Rules:
 - Use DuckDB SQL syntax (date_trunc, datediff, list, struct, etc.)
 - ALWAYS include the full schema prefix in table references (e.g. `{schema}_omop.omcdm_person`)
 - Cast dates using `::DATE` and timestamps using `::TIMESTAMP`
 - For cohort queries, use a CTE and return person_id + the metric
+- Use regexp_matches(string, pattern) for regex matching in DuckDB (NOT the `~` operator)
 - Return only SQL — no prose, no markdown fences.
 """.strip()
 
@@ -154,7 +159,14 @@ class PlanResponse(BaseModel):
 
 
 class CohortRequest(BaseModel):
-    filters: Dict[str, Any] = Field(default_factory=dict, description="Cohort filters: min_age, max_age, gender, conditions (list), ccs_categories (list), min_visits, state.")
+    filters: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Cohort filters. Supported keys: min_age, max_age, gender_concept_id, "
+            "ccs_categories (list), drug_classes (list), measurement_categories (list), "
+            "min_visits, min_drugs, min_measurements, state (list)."
+        ),
+    )
 
 
 class CohortResponse(BaseModel):
@@ -178,6 +190,8 @@ def schema() -> Dict[str, Any]:
             "omcdm_person",
             "omcdm_condition_occurrence",
             "omcdm_visit_occurrence",
+            "omcdm_drug_exposure",
+            "omcdm_measurement",
             "mart_member_roster",
             "int_member_months",
         ],
@@ -239,6 +253,8 @@ def cohort(req: CohortRequest) -> CohortResponse:
     s_person = f"{DB_SCHEMA}_omop.omcdm_person"
     s_cond = f"{DB_SCHEMA}_omop.omcdm_condition_occurrence"
     s_visit = f"{DB_SCHEMA}_omop.omcdm_visit_occurrence"
+    s_drug = f"{DB_SCHEMA}_omop.omcdm_drug_exposure"
+    s_meas = f"{DB_SCHEMA}_omop.omcdm_measurement"
     s_roster = f"{DB_SCHEMA}_marts.mart_member_roster"
 
     where_clauses = ["1=1"]
@@ -254,10 +270,32 @@ def cohort(req: CohortRequest) -> CohortResponse:
             f"EXISTS (SELECT 1 FROM {s_cond} co "
             f"WHERE co.person_id = {s_person}.person_id AND co.ccs_category IN ({cats}))"
         )
+    if f.get("drug_classes"):
+        dcs = ", ".join(f"'{c}'" for c in f["drug_classes"])
+        where_clauses.append(
+            f"EXISTS (SELECT 1 FROM {s_drug} d "
+            f"WHERE d.person_id = {s_person}.person_id AND d.drug_code_type IN ({dcs}))"
+        )
+    if f.get("measurement_categories"):
+        mcs = ", ".join(f"'{c}'" for c in f["measurement_categories"])
+        where_clauses.append(
+            f"EXISTS (SELECT 1 FROM {s_meas} m "
+            f"WHERE m.person_id = {s_person}.person_id AND m.measurement_category IN ({mcs}))"
+        )
     if f.get("min_visits") is not None:
         where_clauses.append(
             f"(SELECT COUNT(*) FROM {s_visit} v "
             f"WHERE v.person_id = {s_person}.person_id) >= {int(f['min_visits'])}"
+        )
+    if f.get("min_drugs") is not None:
+        where_clauses.append(
+            f"(SELECT COUNT(*) FROM {s_drug} d "
+            f"WHERE d.person_id = {s_person}.person_id) >= {int(f['min_drugs'])}"
+        )
+    if f.get("min_measurements") is not None:
+        where_clauses.append(
+            f"(SELECT COUNT(*) FROM {s_meas} m "
+            f"WHERE m.person_id = {s_person}.person_id) >= {int(f['min_measurements'])}"
         )
     if f.get("state"):
         states = ", ".join(f"'{s}'" for s in f["state"])
