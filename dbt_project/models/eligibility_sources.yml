@@ -1,0 +1,32 @@
+version: 2
+
+# Sources for the eligibility raw tables.
+# In production, these are the Iceberg tables written by the eligibility ETL.
+# In local dev, scripts/seed_omop.py + a small seed CSV populate raw_dev.eligibility.
+sources:
+  - name: raw
+    description: "Bronze layer — raw eligibility data from upstream feeds."
+    schema: raw_dev
+    tables:
+      - name: eligibility
+        description: "Raw eligibility feed, one row per member-coverage-period."
+        columns:
+          - name: mem_id
+            tests: [not_null]
+          - name: first_name
+            tests: [not_null]
+          - name: last_name
+            tests: [not_null]
+          - name: dob
+          - name: email
+          - name: phone
+          - name: address
+          - name: city
+          - name: state
+          - name: zip_code
+          - name: effective_date
+          - name: termination_date
+          - name: covered_relation
+          - name: plan_type
+          - name: metal_level
+          - name: hsa_eligible

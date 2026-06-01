@@ -1,0 +1,52 @@
+version: 2
+
+# OMOP CDM schema contracts
+# These run as dbt tests on every build and as part of CI
+models:
+  - name: omcdm_person
+    description: "OMOP Person table (per-patient demographics)."
+    columns:
+      - name: person_id
+        tests: [not_null, unique]
+      - name: gender_concept_id
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 8507, 8532, 44814653, 44814649]
+      - name: year_of_birth
+        tests:
+          - not_null
+
+  - name: omcdm_condition_occurrence
+    description: "OMOP Condition Occurrence (patient × diagnosis events)."
+    columns:
+      - name: condition_occurrence_id
+        tests: [not_null, unique]
+      - name: person_id
+        tests: [not_null]
+      - name: condition_concept_id
+        tests: [not_null]
+      - name: condition_start_date
+        tests: [not_null]
+      - name: condition_type_concept_id
+        tests: [not_null]
+      - name: ccs_category
+        tests:
+          - not_null
+
+  - name: omcdm_visit_occurrence
+    description: "OMOP Visit Occurrence (patient × encounter events)."
+    columns:
+      - name: visit_occurrence_id
+        tests: [not_null, unique]
+      - name: person_id
+        tests: [not_null]
+      - name: visit_concept_id
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 9201, 9202, 9203]
+      - name: visit_start_date
+        tests: [not_null]
+      - name: visit_end_date
+        tests: [not_null]

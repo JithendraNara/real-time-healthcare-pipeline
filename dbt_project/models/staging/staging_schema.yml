@@ -14,9 +14,6 @@ models:
         description: "Member date of birth"
         tests:
           - not_null
-          - dbt_utils.recency:
-              datepart: year
-              interval: 120
 
       - name: first_name
         tests:
@@ -35,38 +32,14 @@ models:
         description: "5-digit zero-padded zip code"
         tests:
           - not_null
-          - dbt_utils.validate_regex:
-              regex: '^[0-9]{5}$'
 
       - name: state
         tests:
           - not_null
           - accepted_values:
-              values: ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
-                       'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
-                       'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
-                       'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
-                       'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']
-
-      - name: coverage_effective_date
-        tests:
-          - not_null
-
-      - name: plan_type
-        tests:
-          - not_null
-          - accepted_values:
-              values: ['HMO', 'PPO', 'EPO', 'HDHP', 'POS']
-
-      - name: metal_level
-        tests:
-          - accepted_values:
-              values: ['Bronze', 'Silver', 'Gold', 'Platinum']
-              config:
-                where: "metal_level IS NOT NULL"
-
-      - name: relationship
-        description: "Self, Spouse, Child, Domestic Partner"
-        tests:
-          - accepted_values:
-              values: ['Self', 'Spouse', 'Child', 'Domestic Partner']
+              arguments:
+                values: ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+                         'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+                         'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+                         'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+                         'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY']

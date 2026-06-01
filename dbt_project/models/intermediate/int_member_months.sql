@@ -1,39 +1,79 @@
 -- Intermediate: member months
 -- Calculate coverage months per member for PMPM calculations
 {{ config(
-    materialized='view',
+    materialized='table',
     schema='intermediate'
 ) }}
 
-WITH members_with_months AS (
+WITH members AS (
     SELECT
         m.member_id,
         m.first_name,
         m.last_name,
         m.date_of_birth,
+        m.coverage_effective_date,
+        m.coverage_termination_date,
         m.plan_type,
         m.metal_level,
         m.state,
-        -- Generate all months from effective to today (or termination)
-        GENERATE_SERIES(
-            DATE_TRUNC('month', m.coverage_effective_date),
-            CASE
-                WHEN m.coverage_termination_date IS NULL
-                    THEN DATE_TRUNC('month', CURRENT_DATE)
-                ELSE DATE_TRUNC('month', m.coverage_termination_date)
-            END,
-            INTERVAL '1 month'
-        )::DATE AS coverage_month,
-        -- Calculate age
-        DATE_PART('year', AGE(m.date_of_birth)) AS age,
-        -- Dependents
-        CASE WHEN m.relationship = 'Self' THEN TRUE ELSE FALSE END AS is_primary
+        m.relationship,
+        -- Active only
+        CASE
+            WHEN m.coverage_termination_date IS NULL
+                 OR m.coverage_termination_date >= CURRENT_DATE
+            THEN TRUE ELSE FALSE
+        END AS is_active
     FROM {{ ref('stg_eligibility_members') }} m
-    WHERE
-        -- Only active members
-        m.coverage_termination_date >= CURRENT_DATE
-        OR m.coverage_termination_date IS NULL
+),
+
+unrolled AS (
+    SELECT
+        member_id,
+        first_name,
+        last_name,
+        date_of_birth,
+        coverage_effective_date,
+        coverage_termination_date,
+        plan_type,
+        metal_level,
+        state,
+        relationship,
+        is_active,
+        -- Compute the end month as a scalar
+        COALESCE(
+            DATE_TRUNC('month', coverage_termination_date),
+            DATE_TRUNC('month', CURRENT_DATE)
+        ) AS end_month,
+        DATE_TRUNC('month', coverage_effective_date) AS start_month,
+        -- Compute age once
+        CAST(DATE_DIFF('year', date_of_birth, CURRENT_DATE) AS INTEGER) AS age
+    FROM members
+),
+
+month_series AS (
+    SELECT
+        u.member_id,
+        u.first_name,
+        u.last_name,
+        u.date_of_birth,
+        u.age,
+        u.plan_type,
+        u.metal_level,
+        u.state,
+        u.relationship,
+        u.is_active,
+        gs.coverage_month,
+        CASE WHEN u.relationship = 'Self' THEN TRUE ELSE FALSE END AS is_primary
+    FROM unrolled u
+    CROSS JOIN UNNEST(
+        GENERATE_SERIES(
+            CAST(u.start_month AS DATE),
+            CAST(u.end_month AS DATE),
+            INTERVAL '1' MONTH
+        )
+    ) AS gs(coverage_month)
 )
+
 SELECT
     member_id,
     first_name,
@@ -45,6 +85,6 @@ SELECT
     state,
     coverage_month,
     is_primary,
-    -- Member month = 1 for each month a member is active
     1 AS member_months
-FROM members_with_months
+FROM month_series
+WHERE is_active

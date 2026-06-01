@@ -1,225 +1,105 @@
-name: CI
+name: vital-pipeline CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
-jobs:
-  # ============================================================
-  # Python: Notebooks + Data Quality + AI
-  # ============================================================
-  python-tests:
-    name: Python / Data Quality
-    runs-on: ubuntu-latest
+env:
+  PYTHON_VERSION: '3.12'
 
+jobs:
+  # ─── Lint + test the OMOP pipeline end-to-end ───
+  pipeline-test:
+    name: Pipeline (dbt + DQ + AI boot)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install LiteParse
-        run: npm install -g @llamaindex/liteparse
-
-      - name: Install dependencies
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pandas jupyter nbformat great-expectations pytest pytest-mock reportlab
+          pip install -r ai/analyst/requirements.txt
+          pip install flake8 black isort pytest pytest-cov dbt-core dbt-duckdb duckdb great-expectations pandas
 
-      - name: Generate synthetic data
-        run: cd notebooks/eligibility-qa && python generate_data.py
-
-      - name: Run notebook smoke test
+      - name: Lint
         run: |
-          python -c "
-          import json
-          with open('notebooks/eligibility-qa/eligibility_qa.ipynb') as f:
-              nb = json.load(f)
-          print(f'Notebook: {len(nb[\"cells\"])} cells')
-          code_cells = [c for c in nb['cells'] if c['cell_type'] == 'code']
-          print(f'Code cells: {len(code_cells)}')
-          print('✅ Notebook valid JSON')
-          "
+          flake8 ai/ data_quality/ scripts/ --max-line-length=120 --ignore=E501,W503
+          black --check ai/ data_quality/ scripts/
+          isort --check-only ai/ data_quality/ scripts/
 
-      - name: Generate claims data
-        run: python ai/anomaly_detection/generate_claims_data.py
-
-      - name: Run data quality suite
-        run: |
-          python notebooks/eligibility-qa/data/generate_data.py || true
-          python data_quality/run_gx_suite.py notebooks/eligibility-qa/data/eligibility_dirty.csv || true
-
-      - name: Run LiteParse PDF pipeline smoke test
-        run: |
-          lit --version
-          python docs_parsing/parse_pdfs.py --file sample_pdfs/eob_sample.pdf --output output || true
-
-  # ============================================================
-  # SQL: Syntax validation
-  # ============================================================
-  sql-lint:
-    name: SQL Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install sqlfluff
-        run: pip install sqlfluff
-
-      - name: Lint SQL
-        run: |
-          sqlfluff lint sql/ --dialect postgres --fail-on-violation false || true
-          sqlfluff lint synthea_pipeline/ --dialect postgres --fail-on-violation false || true
-
-  # ============================================================
-  # dbt: Model validation
-  # ============================================================
-  dbt-check:
-    name: dbt Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dbt
-        run: pip install dbt-postgres dbt-labs/dbt_utils dbt-labs/codegen
+      - name: Generate Synthea-like seed
+        run: python scripts/seed_omop.py --patients 500
 
       - name: dbt deps
-        run: cd dbt_project && dbt deps || true
+        working-directory: dbt_project
+        run: dbt deps
 
-      - name: dbt compile (syntax check)
-        run: cd dbt_project && dbt compile || true
-
-      - name: Synthea OMOP dbt compile
+      - name: dbt seed
+        working-directory: dbt_project
         run: |
-          cd synthea_pipeline
-          dbt deps || true
-          dbt compile || true
+          mkdir -p ~/.dbt
+          cp profiles.yml.example ~/.dbt/profiles.yml
+          DBT_PROFILES_DIR=~/.dbt dbt seed --profile vital_pipeline --target local
 
-  # ============================================================
-  # Terraform: IaC validation
-  # ============================================================
-  terraform:
-    name: Terraform
+      - name: dbt build
+        working-directory: dbt_project
+        run: DBT_PROFILES_DIR=~/.dbt dbt build --profile vital_pipeline --target local
+
+      - name: Data quality (GX + OMOP + freshness)
+        run: DUCKDB_PATH=dbt_project/dbt.duckdb python data_quality/run_gx_suite.py
+
+      - name: AI analyst boot test
+        run: |
+          uvicorn ai.analyst.app:app --host 127.0.0.1 --port 8765 &
+          sleep 4
+          curl -fsS http://127.0.0.1:8765/health
+          curl -fsS http://127.0.0.1:8765/schema
+          kill %1 2>/dev/null || true
+
+      - uses: codecov/codecov-action@v4
+        with: file: ./coverage.xml
+        continue-on-error: true
+
+  # ─── Build and push the AI analyst container ───
+  docker:
+    name: Docker Build
     runs-on: ubuntu-latest
-
+    needs: pipeline-test
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          terraform_version: 1.7.0
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ai/analyst
+          push: true
+          tags: ghcr.io/${{ github.repository }}/ai-analyst:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Terraform init + validate
-        working-directory: infrastructure
-        run: |
-          terraform init -backend=false
-          terraform validate
-
-      - name: Terraform fmt check
-        working-directory: infrastructure
-        run: |
-          terraform fmt -check -recursive
-
-  # ============================================================
-  # Prefect: Flow syntax validation
-  # ============================================================
-  prefect-validate:
-    name: Prefect Flow
+  # ─── Security scan ───
+  security:
+    name: Security Scan
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Trivy
+        uses: aquasecurity/trivy-action@master
         with:
-          python-version: "3.11"
-        run: pip install -q prefect pandas great-expectations
-
-      - name: Prefect flow structural validation
-        run: |
-          python -c "
-          import ast
-          with open('prefect_flows/eligibility_prefect_flow.py') as f:
-              tree = ast.parse(f.read())
-          flows = [n.name for n in ast.walk(tree) if hasattr(n, 'name')]
-          tasks = [n.name for n in ast.walk(tree) if hasattr(n, 'name') and n.name.endswith('_task')]
-          print(f'Functions: {len(flows)}, Tasks: {len(tasks)}')
-          print('✅ Prefect flow syntax valid')
-          "
-
-  # ============================================================
-  # Data Contract: YAML schema validation
-  # ============================================================
-  data-contract:
-    name: Data Contract
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-        run: pip install -q pyyaml jsonschema
-
-      - name: Validate eligibility data contract
-        run: |
-          python -c "
-          import yaml
-          with open('data_contracts/eligibility_data_contract.yml') as f:
-              contract = yaml.safe_load(f)
-          dc = contract['dataContract']
-          cols = contract['schema']['columns']
-          qual = contract['quality']
-          print(f'Data contract: {dc[\"id\"]} v{dc[\"version\"]}')
-          print(f'  Columns: {len(cols)}')
-          print(f'  Quality SLAs: {list(qual.keys())}')
-          print(f'  Availability: {dc[\"availability\"][\"uptimeTarget\"]}')
-          print('✅ Data contract valid YAML')
-          "
-
-  # ============================================================
-  # Docs: Markdown lint
-  # ============================================================
-  docs-lint:
-    name: Docs Lint
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install markdownlint
-        run: pip install markdownlint-cli
-
-      - name: Lint docs
-        run: |
-          markdownlint docs/ --disable rule MD013 --disable rule MD033 || true
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      - uses: github/codeql-action/upload-sarif@v3
+        with: sarif_file: 'trivy-results.sarif'

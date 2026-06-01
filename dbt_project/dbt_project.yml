@@ -1,41 +1,68 @@
 name: vital_pipeline
-version: 0.1.0
+version: '0.2.0'
 config-version: 2
 
-require-dbt-version: [">=1.5.0", "<2.0.0"]
+# dbt Fusion engine + Apache Iceberg v3 (S3/Glue prod, DuckDB local dev)
+# Healthcare data: Bronze → Silver → Gold with OMOP CDM alignment.
+
+profile: vital_pipeline
+
+require-dbt-version: [">=1.8.0", "<2.0.0"]
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
 
 vars:
-  # Source schema
-  source_schema: raw
-  warehouse_schema: analytics
+  # Source schemas
+  source_schema: "{{ env_var('SOURCE_SCHEMA', 'raw_dev') }}"
+  warehouse_schema: "{{ env_var('WAREHOUSE_SCHEMA', 'analytics_dev') }}"
 
-  # ICD-10 reference data (seed)
+  # Iceberg namespace (prod) / DuckDB schema (local)
+  iceberg_namespace: "{{ env_var('ICEBERG_NAMESPACE', 'silver_dev') }}"
+  iceberg_gold_namespace: "{{ env_var('ICEBERG_GOLD_NAMESPACE', 'gold_dev') }}"
+
+  # S3
+  s3_warehouse: "{{ env_var('S3_WAREHOUSE', 's3://vital-pipeline-warehouse') }}"
+
+  # Reference data seeds
   icd10_seed_path: seeds/icd10_codes.csv
-  cpt_seed_path: seeds/cpt_codes.csv
+  cpt_seed_path:   seeds/cpt_codes.csv
 
   # Business rules
   child_max_age: 26
-  analysis_date: "2026-03-25"
+  analysis_date: "2026-06-01"
 
-# Target profiles (local dev = postgres)
-profile: vital_pipeline
-
-targets:
-  local:
-    outputs:
-      dev:
-        type: postgres
-        host: localhost
-        port: 5432
-        dbname: healthcare
-        schema: analytics
-        user: postgres
-        password: "{{ env_var('DBT_PASSWORD') }}"
-        sslmode: prefer
+# Medallion architecture — works for both Iceberg (prod) and DuckDB (local)
+models:
+  vital_pipeline:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+    omop:
+      +materialized: table
+      +schema: omop
+    udfs:
+      +materialized: table
+      +schema: gold
 
 on-run-start:
-  - "{{ log('vital-pipeline: Running dbt models', info=True) }}"
+  - "{{ log('vital-pipeline: ' ~ this.name ~ ' starting', info=True) }}"
 
+# Store test failures in a target schema for inspection
 tests:
   +store_failures: true
   +fail_on_error: false

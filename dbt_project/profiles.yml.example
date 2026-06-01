@@ -1,0 +1,26 @@
+vital_pipeline:
+  target: local
+  outputs:
+    # ─── Local dev: zero AWS, pure DuckDB ───
+    local:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'dbt.duckdb') }}"
+      threads: 4
+
+    # ─── Dev: AWS Glue Iceberg v3 catalog ───
+    dev:
+      type: iceberg
+      catalog: glue
+      catalog_name: glue
+      catalog_region: us-east-1
+      warehouse: "{{ env_var('S3_WAREHOUSE', 's3://vital-pipeline-warehouse-dev') }}"
+      threads: 4
+
+    # ─── Production: same stack, isolated ───
+    prod:
+      type: iceberg
+      catalog: glue
+      catalog_name: glue
+      catalog_region: us-east-1
+      warehouse: "{{ env_var('S3_WAREHOUSE', 's3://vital-pipeline-warehouse-prod') }}"
+      threads: 8

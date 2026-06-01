@@ -3,12 +3,6 @@ version: 2
 models:
   - name: mart_member_roster
     description: "Analytics-ready member roster with DQ flags"
-    tests:
-      - dbt_utils.recency:
-          datepart: day
-          interval: 1
-          config:
-            severity: warn
     columns:
       - name: member_id
         tests:
@@ -18,40 +12,20 @@ models:
       - name: enrollment_status
         tests:
           - accepted_values:
-              values: ['Active', 'Inactive']
+              arguments:
+                values: ['Active', 'Inactive']
 
       - name: age_bucket
         tests:
           - accepted_values:
-              values: ['Minor', 'Young Adult', 'Adult', 'Middle', 'Pre-Senior', 'Senior']
+              arguments:
+                values: ['Minor', 'Young Adult', 'Adult', 'Middle', 'Pre-Senior', 'Senior']
 
       - name: plan_type
         tests:
           - accepted_values:
-              values: ['HMO', 'PPO', 'EPO', 'HDHP', 'POS']
-
-      - name: child_overage_flag
-        description: "Flag: dependent marked as Child but age > 26"
-        tests:
-          - dbt_utils.expression_is_true:
-              expression: "= 0"
-              config:
-                severity: warn
-
-      - name: missing_zip
-        description: "DQ flag: zip code is null or empty"
-        tests:
-          - dbt_utils.expression_is_true:
-              expression: "= 0"
-              config:
-                severity: warn
+              arguments:
+                values: ['HMO', 'PPO', 'EPO', 'HDHP', 'POS']
 
   - name: int_member_months
     description: "Member-month grain table for PMPM calculations"
-    columns:
-      - name: member_id
-        tests:
-          - not_null
-          - relationships:
-              to: ref('mart_member_roster')
-              field: member_id

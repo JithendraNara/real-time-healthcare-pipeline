@@ -1,0 +1,40 @@
+version: 2
+
+# OMOP CDM source mapping for Synthea synthetic data
+# Synthea provides CSV exports; in prod, these are staged to S3 → Iceberg.
+# Local dev seeds from a small synthetic dataset in scripts/seed_omop.py
+sources:
+  - name: synthea_raw
+    description: "Synthea synthetic patient data — Bronze layer in S3/Iceberg."
+    schema: raw_dev
+    tables:
+      - name: patients
+        description: "Synthetic patient demographics (Synthea patients.csv)."
+        columns:
+          - name: patient_id
+            tests: [not_null, unique]
+          - name: birthdate
+            tests: [not_null]
+          - name: gender
+            tests: [not_null]
+
+      - name: conditions
+        description: "Synthetic condition records (Synthea conditions.csv)."
+        columns:
+          - name: patient_id
+            tests: [not_null]
+          - name: "start"
+            tests: [not_null]
+          - name: code
+          - name: description
+
+      - name: encounters
+        description: "Synthetic encounters (Synthea encounters.csv)."
+        columns:
+          - name: encounter_id
+            tests: [not_null, unique]
+          - name: patient_id
+            tests: [not_null]
+          - name: "start"
+            tests: [not_null]
+          - name: encounterclass
