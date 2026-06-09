@@ -40,6 +40,12 @@ sample_data.json
 sample_pdfs/
 docs_parsing/output/
 streaming/warehouse/
+ml/warehouse/
+mlflow.db
+mlflow.db-shm
+mlflow.db-wal
+mlruns/
+mlruns/.trash/
 *.parquet
 *.avro
 *.pdf

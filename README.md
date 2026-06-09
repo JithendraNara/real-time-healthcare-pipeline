@@ -77,6 +77,7 @@ A production-quality healthcare data platform combining **real-time streaming** 
 | **Real-time ingest** | Kafka (Redpanda locally) + AWS Glue Streaming ETL (prod) |
 | **Validation** | Confluent JSON Schema + Pydantic v2 (fail-fast at the door) |
 | **IoT sim** | Continuous device simulator (wearables, BP cuff, glucose, pill bottle) |
+| **ML scoring** | LightGBM (readmission_30d) + MLflow registry + FastAPI scorer + real-time Kafka scorer |
 | **Storage** | S3 + Apache Iceberg v3 (prod) / DuckDB (local) |
 | **Catalog** | AWS Glue (prod) / Iceberg REST (local) |
 | **Transform** | dbt Fusion + Python UDFs (CCS category lookup) |
@@ -130,9 +131,24 @@ python streaming/seeders/iot_device_simulator.py --patients 50
 python streaming/consumers/glue_etl_job.py --mode local
 # In another: synthetic EHR event producer
 python streaming/producers/healthcare_producer.py --rate 20
+
+# 8. (Optional) Add the ML layer — MLflow + readmission scorer
+docker compose -f ml/docker-compose.ml.yml up -d
+pip install -r ml/requirements.txt
+# Train + promote to Production
+python ml/scripts/train.py --synthetic 1000 --promote
+# Start the FastAPI scorer
+MLFLOW_TRACKING_URI=http://localhost:5000 uvicorn ml.api.app:app --host 0.0.0.0 --port 8001
+# Start the real-time scorer (consumes admissions → publishes predictions)
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 MLFLOW_TRACKING_URI=http://localhost:5000 \
+  OMOP_DUCKDB=dbt_project/dbt.duckdb SILVER_DUCKDB=streaming/warehouse/silver.db \
+  python ml/realtime/scorer.py
 ```
 
-UI: Redpanda Console at <http://localhost:8081> for live topic inspection.
+UI:
+- Redpanda Console at <http://localhost:8081> for live topic inspection
+- MLflow at <http://localhost:5000> for experiment tracking + model registry
+- Scorer API docs at <http://localhost:8001/docs>
 
 ---
 
@@ -190,6 +206,36 @@ curl -X POST http://localhost:8000/cohort \
 ```
 
 **Why it matters:** the AI analyst doesn't just generate SQL — it executes it, summarizes the result, and chains multiple Q&A steps into a single diagnostic flow. This is the agentic BI pattern the entire healthcare analytics industry is moving toward in 2026.
+
+---
+
+## 🧬 The Readmission Scorer (Module 2)
+
+Real-time 30-day readmission risk prediction. LightGBM classifier trained on OMOP features, served via FastAPI, scored continuously by a Kafka consumer that publishes to `healthcare.predictions`.
+
+```bash
+# Score a single patient
+curl -X POST http://localhost:8001/predict \
+  -H "Content-Type: application/json" \
+  -d '{"patient_id": "12345"}'
+# → {
+#     "patient_id": "12345",
+#     "score": 0.42,
+#     "risk_band": "high",
+#     "top_feature_contributions": {
+#       "feature_chronic_conditions": 0.18,
+#       "feature_visits_90d": 0.11,
+#       "feature_total_drugs": 0.07,
+#       "feature_age": 0.04,
+#       "feature_mean_los_days": 0.02
+#     },
+#     "features_used": ["feature_age", "feature_chronic_conditions", ...],
+#     "model_version": "production",
+#     "scored_at": "2026-06-09T15:55:00Z"
+#   }
+```
+
+**Why SHAP:** the model doesn't just hand you a number — it shows you the top 5 features that drove the prediction. A clinician can audit "why is this patient flagged as high risk?" in one glance. This is the explainability bar the entire clinical ML industry is moving toward.
 
 ---
 
