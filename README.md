@@ -78,6 +78,7 @@ A production-quality healthcare data platform combining **real-time streaming** 
 | **Validation** | Confluent JSON Schema + Pydantic v2 (fail-fast at the door) |
 | **IoT sim** | Continuous device simulator (wearables, BP cuff, glucose, pill bottle) |
 | **ML scoring** | LightGBM (readmission_30d) + MLflow registry + FastAPI scorer + real-time Kafka scorer |
+| **Governance** | AES-256-GCM column encryption + append-only audit log + OPA-compatible RBAC + Safe Harbor de-identification |
 | **Storage** | S3 + Apache Iceberg v3 (prod) / DuckDB (local) |
 | **Catalog** | AWS Glue (prod) / Iceberg REST (local) |
 | **Transform** | dbt Fusion + Python UDFs (CCS category lookup) |
@@ -143,6 +144,13 @@ MLFLOW_TRACKING_URI=http://localhost:5000 uvicorn ml.api.app:app --host 0.0.0.0 
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 MLFLOW_TRACKING_URI=http://localhost:5000 \
   OMOP_DUCKDB=dbt_project/dbt.duckdb SILVER_DUCKDB=streaming/warehouse/silver.db \
   python ml/realtime/scorer.py
+
+# 9. (Optional) Add the HIPAA governance layer — encryption + audit + RBAC
+pip install -r governance/requirements.txt
+# Generate a dev key (32 random bytes, base64) — production uses AWS KMS
+export HEALTHCARE_KMS_KEY=$(python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())")
+# End-to-end governance smoke test (needs Redpanda from step 7)
+python governance/scripts/e2e_governance_test.py
 ```
 
 UI:
@@ -236,6 +244,55 @@ curl -X POST http://localhost:8001/predict \
 ```
 
 **Why SHAP:** the model doesn't just hand you a number — it shows you the top 5 features that drove the prediction. A clinician can audit "why is this patient flagged as high risk?" in one glance. This is the explainability bar the entire clinical ML industry is moving toward.
+
+---
+
+## 🔒 The HIPAA Governance Layer (Module 3)
+
+Column-level encryption, append-only audit, role-based access control, and Safe Harbor de-identification wrap the entire data surface.
+
+```python
+from governance.encryption.encryptor import PHIEncryptor
+from governance.encryption.crypto import CryptoService
+
+# Encrypt PHI on write
+encryptor = PHIEncryptor(CryptoService())
+encrypted_event = encryptor.encrypt_event({
+    "patient_id": "12345",
+    "mrn": "M001",
+    "heart_rate_bpm": 72,
+})
+# patient_id and mrn are now AES-256-GCM envelopes; heart_rate_bpm is untouched
+```
+
+```python
+from governance.masking.deidentify import deidentify_omop_person
+
+# Safe Harbor de-identification for research exports
+deidentified = deidentify_omop_person({
+    "person_id": 12345, "mrn": "M001", "name": "Jane Doe",
+    "birth_datetime": "1945-01-15T00:00:00Z", "year_of_birth": 1945,
+    "phone": "555-1234",
+})
+# → mrn: "DH_f96d..." (hashed), name: "DH_9348..." (hashed),
+#    birth_datetime: None, phone: None
+```
+
+```python
+from governance.rbac.policies import Actor, AccessRequest, PolicyEngine, Resource
+
+engine = PolicyEngine()
+# Data scientist trying to read raw MRN — denied
+engine.evaluate(AccessRequest(
+    actor=Actor(id="alice", role="data_scientist"),
+    action="read",
+    resource=Resource(type="table", id="omcdm_person", fields=["person.mrn"]),
+    purpose="model_training",
+))
+# → AccessDecision(allow=False, reason="role 'data_scientist' cannot access...")
+```
+
+**Why this layer matters:** the entire platform — OMOP warehouse, streaming pipeline, ML scorer — can be HIPAA-compliant without any of them knowing about encryption keys, audit logs, or role policies. They just call into the governance layer. Swap the local key manager for AWS KMS in prod, swap the DuckDB audit backend for Iceberg on S3, and the entire system is production-grade HIPAA.
 
 ---
 

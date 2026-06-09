@@ -1,0 +1,6 @@
+# Governance module runtime requirements.
+# Used by both Module 1 (governed consumer) and Module 2 (scorer audit wrapper).
+
+cryptography>=42.0
+pydantic>=2.7
+duckdb>=1.0
