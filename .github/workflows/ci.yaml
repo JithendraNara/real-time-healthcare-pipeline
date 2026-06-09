@@ -187,3 +187,57 @@ assert len(versions) >= 1, f'no registered versions: {versions}'
 v = versions[0]
 print(f'OK: {v.name} v{v.version} stage={v.current_stage}')
 "
+
+  # ─── Governance module tests (AES + audit + deid + RBAC) ───
+  governance-test:
+    name: Governance (HIPAA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r governance/requirements.txt
+          pip install flake8 black isort pytest
+
+      - name: Lint governance
+        run: |
+          flake8 governance/ --max-line-length=120 --ignore=E501,W503
+          black --check governance/
+          isort --check-only governance/
+
+      - name: Unit tests
+        run: |
+          HEALTHCARE_KMS_KEY=$(python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())") \
+            pytest governance/tests/ -v --tb=short
+
+      - name: Verify deidentification + RBAC works
+        run: |
+          HEALTHCARE_KMS_KEY=$(python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())") \
+            python -c "
+import sys
+sys.path.insert(0, '.')
+from governance.masking.deidentify import deidentify_omop_person, redact_zip
+from governance.rbac.policies import Actor, AccessRequest, PolicyEngine, Resource
+
+# Deid smoke
+out = deidentify_omop_person({'mrn': 'M001', 'name': 'Jane', 'phone': '555-1234', 'year_of_birth': 1980, 'birth_datetime': '1980-01-01T00:00:00Z'})
+assert out['mrn'].startswith('DH_'), f'mrn not hashed: {out}'
+assert out['phone'] is None, f'phone not dropped: {out}'
+print('  OK: deid smoke')
+
+# RBAC smoke
+engine = PolicyEngine()
+req = AccessRequest(actor=Actor(id='x', role='data_scientist'), action='read',
+                    resource=Resource(type='table', id='omcdm_person', fields=['person.mrn']),
+                    purpose='model_training')
+assert not engine.evaluate(req).allow, 'data scientist should be denied raw MRN'
+req2 = AccessRequest(actor=Actor(id='y', role='clinician'), action='read',
+                     resource=Resource(type='table', id='omcdm_person', fields=['person.mrn']),
+                     purpose='clinical_care')
+assert engine.evaluate(req2).allow, 'clinician should be allowed MRN for clinical_care'
+print('  OK: rbac smoke')
+"
