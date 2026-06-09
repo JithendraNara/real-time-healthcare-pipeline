@@ -103,3 +103,40 @@ jobs:
           output: 'trivy-results.sarif'
       - uses: github/codeql-action/upload-sarif@v3
         with: sarif_file: 'trivy-results.sarif'
+
+  # ─── Streaming module tests (no broker required for unit tests) ───
+  streaming-test:
+    name: Streaming Module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r streaming/producers/requirements.txt
+          pip install flake8 black isort pytest
+
+      - name: Lint streaming
+        run: |
+          flake8 streaming/ --max-line-length=120 --ignore=E501,W503
+          black --check streaming/
+          isort --check-only streaming/
+
+      - name: Unit tests (no broker)
+        run: pytest streaming/tests/ -v --tb=short
+
+      - name: Event shape smoke test
+        run: python streaming/examples/quickstart_producer.py > /tmp/stream_sample.json
+        # Sanity check: every generated event has a patient_id, event_time, source
+          python -c "
+import json, sys
+with open('/tmp/stream_sample.json') as f:
+    txt = f.read()
+assert '\"patient_id\"' in txt
+assert '\"event_time\"' in txt
+assert '\"source\"' in txt
+print('OK: smoke test produced all four event types')
+"

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Jithendranara/real-time-healthcare-pipeline/schemas/iot_telemetry.json",
+  "title": "IoTTelemetryEvent",
+  "description": "Raw IoT device telemetry (wearables, monitors, smart pill bottles, etc.)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "event_time", "ingestion_time", "source", "schema_version",
+    "patient_id", "device_id", "device_type", "metrics"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_time": { "type": "string", "format": "date-time" },
+    "ingestion_time": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["ehr", "iot", "lab_device", "wearable", "monitor", "synthea", "edge_gateway"] },
+    "schema_version": { "type": "integer", "default": 1 },
+    "patient_id": { "type": "string" },
+    "device_id": { "type": "string" },
+    "device_type": { "type": "string", "enum": ["wearable", "continuous_monitor", "smart_pill_bottle", "glucose_meter", "pulse_oximeter", "bp_cuff"] },
+    "firmware_version": { "type": ["string", "null"] },
+    "metrics": { "type": "object", "additionalProperties": true },
+    "battery_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100 }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Jithendranara/real-time-healthcare-pipeline/schemas/vitals.json",
+  "title": "VitalsEvent",
+  "description": "Discrete vital sign measurement for a single patient",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_time", "ingestion_time", "source", "schema_version", "patient_id"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_time": { "type": "string", "format": "date-time" },
+    "ingestion_time": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["ehr", "iot", "lab_device", "wearable", "monitor", "synthea", "edge_gateway"] },
+    "schema_version": { "type": "integer", "default": 1 },
+    "patient_id": { "type": "string", "description": "OMOP person_id" },
+    "encounter_id": { "type": ["string", "null"] },
+    "heart_rate_bpm": { "type": ["integer", "null"], "minimum": 20, "maximum": 300 },
+    "systolic_bp_mmHg": { "type": ["integer", "null"], "minimum": 40, "maximum": 300 },
+    "diastolic_bp_mmHg": { "type": ["integer", "null"], "minimum": 20, "maximum": 250 },
+    "respiratory_rate": { "type": ["integer", "null"], "minimum": 0, "maximum": 80 },
+    "spo2_pct": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "temperature_c": { "type": ["number", "null"], "minimum": 20, "maximum": 45 },
+    "pain_score": { "type": ["integer", "null"], "minimum": 0, "maximum": 10 }
+  }
+}

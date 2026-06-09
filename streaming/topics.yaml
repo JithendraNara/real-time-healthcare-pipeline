@@ -1,0 +1,47 @@
+# Topic configuration for the real-time healthcare pipeline.
+# Used by scripts/create_topics.py and the consumer/producer bootstrap.
+#
+# Production override: set KAFKA_BOOTSTRAP_SERVERS env var, keep topic names identical.
+
+topics:
+  - name: healthcare.vitals
+    partitions: 6
+    replication_factor: 1  # local; 3 in prod
+    retention_ms: 604800000  # 7 days
+    cleanup_policy: delete
+    schema: vitals.json
+
+  - name: healthcare.admissions
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 2592000000  # 30 days
+    cleanup_policy: delete
+    schema: admission.json
+
+  - name: healthcare.lab_results
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 2592000000  # 30 days
+    cleanup_policy: delete
+    schema: lab_result.json
+
+  - name: iot.telemetry
+    partitions: 12
+    replication_factor: 1
+    retention_ms: 604800000  # 7 days
+    cleanup_policy: delete
+    schema: iot_telemetry.json
+
+  - name: healthcare.predictions
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 2592000000  # 30 days
+    cleanup_policy: delete
+    schema: prediction.json
+
+  - name: healthcare.dlq
+    partitions: 1
+    replication_factor: 1
+    retention_ms: 1209600000  # 14 days
+    cleanup_policy: delete
+    schema: dlq.json

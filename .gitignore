@@ -39,6 +39,7 @@ crash.*.log
 sample_data.json
 sample_pdfs/
 docs_parsing/output/
+streaming/warehouse/
 *.parquet
 *.avro
 *.pdf

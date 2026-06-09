@@ -1,0 +1,42 @@
+# Streaming overlay — extends the base docker-compose.yml with Redpanda + Console.
+# Bring up with:
+#   docker compose -f docker-compose.yml -f streaming/docker-compose.streaming.yml up -d
+#
+# Redpanda is Kafka API-compatible, single-binary, no Zookeeper — ideal for local dev.
+# In production, swap to MSK or Confluent Cloud via the KAFKA_BOOTSTRAP_SERVERS env var.
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.18
+    container_name: healthcare-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --mode=dev-container
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:latest
+    container_name: healthcare-redpanda-console
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "8081:8080"
+    restart: unless-stopped

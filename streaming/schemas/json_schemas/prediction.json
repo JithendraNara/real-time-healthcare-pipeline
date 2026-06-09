@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Jithendranara/real-time-healthcare-pipeline/schemas/prediction.json",
+  "title": "PredictionEvent",
+  "description": "ML model output (consumed by Module 2's scorer)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "event_time", "ingestion_time", "source", "schema_version",
+    "patient_id", "prediction_type", "model_id", "model_version",
+    "score", "confidence", "valid_from", "valid_until"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_time": { "type": "string", "format": "date-time" },
+    "ingestion_time": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["ehr", "iot", "lab_device", "wearable", "monitor", "synthea", "edge_gateway"] },
+    "schema_version": { "type": "integer", "default": 1 },
+    "patient_id": { "type": "string" },
+    "prediction_type": { "type": "string", "enum": ["readmission_30d", "icu_deterioration", "bed_demand_1h", "care_recommendation"] },
+    "model_id": { "type": "string" },
+    "model_version": { "type": "string" },
+    "score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "features_used": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "top_feature_contributions": { "type": "object", "additionalProperties": { "type": "number" }, "default": {} },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" }
+  }
+}

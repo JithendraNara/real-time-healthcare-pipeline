@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Jithendranara/real-time-healthcare-pipeline/schemas/dlq.json",
+  "title": "DeadLetterEvent",
+  "description": "Wraps a malformed/invalid event with error context for replay",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dlq_id", "dlq_time", "source_topic", "source_partition", "source_offset",
+    "original_payload", "error_type", "error_message", "consumer_id"
+  ],
+  "properties": {
+    "dlq_id": { "type": "string", "format": "uuid" },
+    "dlq_time": { "type": "string", "format": "date-time" },
+    "source_topic": { "type": "string" },
+    "source_partition": { "type": "integer" },
+    "source_offset": { "type": "integer" },
+    "original_payload": { "type": "string" },
+    "error_type": { "type": "string" },
+    "error_message": { "type": "string" },
+    "error_stack": { "type": ["string", "null"] },
+    "consumer_id": { "type": "string" }
+  }
+}
