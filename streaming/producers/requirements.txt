@@ -1,0 +1,8 @@
+# Runtime requirements for the streaming producer + consumer.
+# Same as the main project — they share the venv — but pinned here for the
+# AWS Glue deployment bundle (zipped and uploaded with the job).
+
+confluent-kafka>=2.5.0
+pydantic>=2.7,<3
+PyYAML>=6.0
+duckdb>=1.0

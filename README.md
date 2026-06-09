@@ -1,47 +1,72 @@
-# vital-pipeline
+# real-time-healthcare-pipeline
 
-> **Healthcare data operations — modernized for 2026.**
-> **Synthea → OMOP CDM v5.4 → DuckDB/Iceberg → AI analyst.**
-> **Zero-AWS local dev. Production-ready for AWS.**
+> **Real-time healthcare & IoT data — modernized for 2026.**
+> **Synthea + IoT → Kafka (Redpanda) → AWS Glue Streaming → Iceberg v3 → ML predictions → clinical dashboard.**
+> **HIPAA-governed. Zero-AWS local dev. Production-ready for AWS.**
 
-[![CI](https://github.com/JithendraNara/vital-pipeline/actions/workflows/ci.yaml/badge.svg)](https://github.com/JithendraNara/vital-pipeline/actions)
+[![CI](https://github.com/Jithendranara/real-time-healthcare-pipeline/actions/workflows/ci.yaml/badge.svg)](https://github.com/Jithendranara/real-time-healthcare-pipeline/actions)
 [![OMOP CDM](https://img.shields.io/badge/OMOP-v5.4-blue)](https://ohdsi.github.io/CommonDataModel/)
+[![Kafka](https://img.shields.io/badge/Kafka-Redpanda-black)](https://redpanda.com/)
+[![AWS Glue](https://img.shields.io/badge/AWS-Glue_Streaming-orange)](https://aws.amazon.com/glue/)
 [![Iceberg v3](https://img.shields.io/badge/Apache_Iceberg-v3-lightgrey)](https://iceberg.apache.org/)
 [![dbt Fusion](https://img.shields.io/badge/dbt-Fusion-orange)](https://www.getdbt.com/)
+[![HIPAA](https://img.shields.io/badge/HIPAA-governed-blueviolet)](#-hipaa-posture)
 [![AI Analyst](https://img.shields.io/badge/AI-MiniMax--M2-green)](https://api.minimax.chat/)
 
-A production-quality healthcare data platform: eligibility QA, claims analytics, anomaly detection, and a natural-language AI analyst — all built on a modern data stack that runs on your laptop.
+A production-quality healthcare data platform combining **real-time streaming** (Kafka + AWS Glue) with the **batch OMOP warehouse** (Synthea → dbt → Iceberg) — plus a natural-language AI analyst, ML outcome models, and HIPAA-grade governance. Runs on your laptop with Docker; deploys to AWS without code changes.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-[Synthea CSVs]   ─┐
-                  │
-[Eligibility Files]┤
-                  ├──▶ [dbt Fusion] ──▶ [OMOP CDM v5.4 (Iceberg v3 / DuckDB)]
-[Claims Data]    ─┘                          │
-                                              ├── person
-                                              ├── condition_occurrence   ← + CCS grouping (Python UDF)
-                                              ├── visit_occurrence
-                                              └── mart_member_roster
-                                                       │
-                                                       ▼
-                                            [AI Healthcare Analyst]
-                                            FastAPI + MiniMax-M2
-                                                       │
-                                                       ├── /ask       NL → SQL → answer
-                                                       ├── /plan      multi-step investigation
-                                                       ├── /cohort    SQL-defined patient filters
-                                                       └── /schema
+ ┌────────────────────────── REAL-TIME (Module 1) ─────────────────────────┐
+ │                                                                         │
+ │  [Synthea EHR] ─┐                                                        │
+ │  [IoT devices] ─┤                                                        │
+ │                  ├──▶ [Kafka / Redpanda] ──▶ [AWS Glue Streaming ETL]    │
+ │  [Wearables]   ─┘                            │                          │
+ │                                               ├── validate (JSON Schema)│
+ │                                               ├── enrich (join OMOP)     │
+ │                                               ├── transform → Iceberg    │
+ │                                               └── DLQ (malformed)        │
+ │                                                          │               │
+ │                                                          ▼               │
+ │  [ML scorer (Module 2)] ◀── silver tables ─── [Iceberg v3 silver]        │
+ │         │                                                              │
+ │         └────▶ healthcare.predictions topic ─────▶ [clinical dashboard] │
+ └─────────────────────────────────────────────────────────────────────────┘
+
+ ┌────────────────────────── BATCH (existing) ─────────────────────────────┐
+ │                                                                         │
+ │  [Synthea CSVs]   ─┐                                                     │
+ │                    │                                                     │
+ │  [Eligibility]    ─┤                                                     │
+ │                    ├──▶ [dbt Fusion] ──▶ [OMOP CDM v5.4 (Iceberg/DuckDB)]│
+ │  [Claims]        ─┘                          │                         │
+ │                                               ├── person, condition, …   │
+ │                                               └── mart_member_roster     │
+ │                                                        │                │
+ │                                                        ▼                │
+ │                                            [AI Healthcare Analyst]      │
+ │                                            FastAPI + MiniMax-M2         │
+ │                                                        │                │
+ │                                                        ├── /ask         │
+ │                                                        ├── /plan         │
+ │                                                        ├── /cohort       │
+ │                                                        └── /schema       │
+ └─────────────────────────────────────────────────────────────────────────┘
+
+       ──── HIPAA governance (Module 3) wraps every read/write ────
+       encryption + RBAC + audit + de-identification
 ```
 
-**Three layers of data quality:**
+**Four layers of data quality:**
 
-1. **Great Expectations** — column-level rules (uniqueness, regex, ranges)
-2. **OMOP row-level** — referential integrity, valid concept_ids, CCS coverage
-3. **Iceberg freshness** — snapshot age checks (replaces the old "is the pipeline running" alerts)
+1. **JSON Schema** at the Kafka boundary — reject malformed events at the door (Module 1)
+2. **Great Expectations** — column-level rules (uniqueness, regex, ranges)
+3. **OMOP row-level** — referential integrity, valid concept_ids, CCS coverage
+4. **Iceberg freshness** — snapshot age checks (replaces the old "is the pipeline running" alerts)
 
 ---
 
@@ -49,25 +74,31 @@ A production-quality healthcare data platform: eligibility QA, claims analytics,
 
 | Layer | Technology |
 |-------|-----------|
+| **Real-time ingest** | Kafka (Redpanda locally) + AWS Glue Streaming ETL (prod) |
+| **Validation** | Confluent JSON Schema + Pydantic v2 (fail-fast at the door) |
+| **IoT sim** | Continuous device simulator (wearables, BP cuff, glucose, pill bottle) |
 | **Storage** | S3 + Apache Iceberg v3 (prod) / DuckDB (local) |
 | **Catalog** | AWS Glue (prod) / Iceberg REST (local) |
 | **Transform** | dbt Fusion + Python UDFs (CCS category lookup) |
-| **Orchestration** | Airflow DAG **+** Prefect flow (already in repo) |
-| **Source** | Synthea synthetic patients / CMS SynPUF claims / Eligibility files |
-| **Quality** | Great Expectations + OMOP row-level + Iceberg freshness |
+| **ML** | MLflow + scikit-learn / LightGBM / Prophet + real-time scorer (Module 2) |
+| **Orchestration** | Airflow DAG + Prefect flow (batch) + Glue Streaming (real-time) |
+| **Source** | Synthea + IoT devices / CMS SynPUF claims / Eligibility files |
+| **Quality** | JSON Schema + Great Expectations + OMOP row-level + Iceberg freshness |
+| **Governance** | AES-256-GCM encryption, OPA RBAC, append-only audit, de-identification (Module 3) |
 | **AI** | MiniMax-M2 (production) / fallback templates (local) |
-| **Local dev** | Docker Compose (MinIO + Iceberg REST + Postgres + AI analyst) |
+| **Local dev** | Docker Compose (MinIO + Iceberg REST + Postgres + Redpanda + AI analyst) |
 
 ---
 
 ## 🚀 Quickstart (5 minutes, zero AWS)
 
 ```bash
-git clone https://github.com/JithendraNara/vital-pipeline.git
-cd vital-pipeline
+git clone https://github.com/Jithendranara/real-time-healthcare-pipeline.git
+cd real-time-healthcare-pipeline
 
 # 1. Install Python deps
 pip install -r ai/analyst/requirements.txt
+pip install -r streaming/producers/requirements.txt
 pip install dbt-core dbt-duckdb duckdb great-expectations
 
 # 2. Seed 500 synthetic patients → DuckDB
@@ -89,7 +120,19 @@ uvicorn ai.analyst.app:app --host 0.0.0.0 --port 8000
 
 # 6. (Optional) Full local stack with MinIO + Iceberg REST
 docker compose up -d
+
+# 7. (Optional) Add the streaming layer — Redpanda + streaming producer/consumer
+docker compose -f docker-compose.yml -f streaming/docker-compose.streaming.yml up -d redpanda redpanda-console
+python streaming/scripts/create_topics.py
+# In one terminal: continuous IoT sim
+python streaming/seeders/iot_device_simulator.py --patients 50
+# In another: Glue ETL (local mode) → DuckDB silver tables
+python streaming/consumers/glue_etl_job.py --mode local
+# In another: synthetic EHR event producer
+python streaming/producers/healthcare_producer.py --rate 20
 ```
+
+UI: Redpanda Console at <http://localhost:8081> for live topic inspection.
 
 ---
 

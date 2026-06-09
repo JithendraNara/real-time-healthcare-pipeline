@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Jithendranara/real-time-healthcare-pipeline/schemas/admission.json",
+  "title": "AdmissionEvent",
+  "description": "Patient admission, transfer, or discharge event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "event_time", "ingestion_time", "source", "schema_version",
+    "patient_id", "encounter_id", "admission_type", "facility_id", "admit_time"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_time": { "type": "string", "format": "date-time" },
+    "ingestion_time": { "type": "string", "format": "date-time" },
+    "source": { "type": "string", "enum": ["ehr", "iot", "lab_device", "wearable", "monitor", "synthea", "edge_gateway"] },
+    "schema_version": { "type": "integer", "default": 1 },
+    "patient_id": { "type": "string" },
+    "encounter_id": { "type": "string" },
+    "admission_type": { "type": "string", "enum": ["inpatient", "outpatient", "emergency", "observation", "day_surgery"] },
+    "facility_id": { "type": "string" },
+    "attending_provider_id": { "type": ["string", "null"] },
+    "chief_complaint": { "type": ["string", "null"], "maxLength": 500 },
+    "admit_time": { "type": "string", "format": "date-time" },
+    "discharge_time": { "type": ["string", "null"], "format": "date-time" },
+    "disposition": { "type": ["string", "null"], "enum": ["home", "transfer", "ama", "expired", "still_admitted", null] },
+    "diagnosis_codes": { "type": "array", "items": { "type": "string" }, "default": [] }
+  }
+}
