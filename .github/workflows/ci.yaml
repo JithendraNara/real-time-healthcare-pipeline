@@ -140,3 +140,50 @@ assert '\"event_time\"' in txt
 assert '\"source\"' in txt
 print('OK: smoke test produced all four event types')
 "
+
+  # ─── ML module tests (no MLflow server / Kafka / OMOP required) ───
+  ml-test:
+    name: ML Module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install OS deps for LightGBM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgomp1
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r streaming/producers/requirements.txt
+          pip install -r ml/requirements.txt
+          pip install flake8 black isort pytest
+
+      - name: Lint ML
+        run: |
+          flake8 ml/ --max-line-length=120 --ignore=E501,W503
+          black --check ml/
+          isort --check-only ml/
+
+      - name: Unit tests (no MLflow server, no Kafka, no OMOP)
+        run: pytest ml/tests/ -v --tb=short
+
+      - name: Train a quick model on synthetic data (smoke test the full pipeline)
+        run: |
+          python ml/scripts/train.py --synthetic 300 --tracking-uri sqlite:///mlflow.db
+
+      - name: Verify the model is registered
+        run: |
+          python -c "
+import mlflow
+client = mlflow.tracking.MlflowClient('sqlite:///mlflow.db')
+exp = client.get_experiment_by_name('readmission_30d')
+assert exp is not None, 'no readmission_30d experiment found'
+versions = client.get_latest_versions('readmission_30d')
+assert len(versions) >= 1, f'no registered versions: {versions}'
+v = versions[0]
+print(f'OK: {v.name} v{v.version} stage={v.current_stage}')
+"
