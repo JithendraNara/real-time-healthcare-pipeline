@@ -1,0 +1,8 @@
+# App module runtime requirements.
+# The dashboard is a read-only view; this file pins its view-layer deps.
+
+streamlit>=1.30
+plotly>=5.18
+pandas>=2.0
+duckdb>=1.0
+pydantic>=2.7

@@ -241,3 +241,41 @@ req2 = AccessRequest(actor=Actor(id='y', role='clinician'), action='read',
 assert engine.evaluate(req2).allow, 'clinician should be allowed MRN for clinical_care'
 print('  OK: rbac smoke')
 "
+
+  # ─── Clinical dashboard + Prefect flow tests (no Streamlit server needed) ───
+  app-test:
+    name: Clinical Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt
+          pip install -r governance/requirements.txt
+          pip install flake8 black isort pytest
+
+      - name: Lint app
+        run: |
+          flake8 app/ --max-line-length=120 --ignore=E501,W503
+          black --check app/
+          isort --check-only app/
+
+      - name: Unit tests (data accessors, with mocked streamlit)
+        run: pytest app/dashboard/tests/ -v --tb=short
+
+      - name: Verify Prefect flow imports cleanly
+        run: |
+          python -c "
+import sys
+sys.path.insert(0, '.')
+# import the flow module — this is the same code path Prefect would use
+import prefect_flows.real_time_healthcare_flow as f
+assert callable(f.real_time_healthcare_flow)
+assert callable(f.ensure_topics)
+assert callable(f.health_check)
+print('OK: real_time_healthcare_flow module loaded')
+"

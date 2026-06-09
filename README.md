@@ -79,6 +79,7 @@ A production-quality healthcare data platform combining **real-time streaming** 
 | **IoT sim** | Continuous device simulator (wearables, BP cuff, glucose, pill bottle) |
 | **ML scoring** | LightGBM (readmission_30d) + MLflow registry + FastAPI scorer + real-time Kafka scorer |
 | **Governance** | AES-256-GCM column encryption + append-only audit log + OPA-compatible RBAC + Safe Harbor de-identification |
+| **Dashboard** | Streamlit — live risk board, patient detail, pipeline health |
 | **Storage** | S3 + Apache Iceberg v3 (prod) / DuckDB (local) |
 | **Catalog** | AWS Glue (prod) / Iceberg REST (local) |
 | **Transform** | dbt Fusion + Python UDFs (CCS category lookup) |
@@ -151,12 +152,20 @@ pip install -r governance/requirements.txt
 export HEALTHCARE_KMS_KEY=$(python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())")
 # End-to-end governance smoke test (needs Redpanda from step 7)
 python governance/scripts/e2e_governance_test.py
+
+# 10. (Optional) Launch the clinical dashboard
+pip install -r app/requirements.txt
+streamlit run app/dashboard/clinical_dashboard.py --server.port 8501
+
+# 11. (Optional) Launch the full end-to-end flow via Prefect
+python prefect_flows/real_time_healthcare_flow.py
 ```
 
 UI:
 - Redpanda Console at <http://localhost:8081> for live topic inspection
 - MLflow at <http://localhost:5000> for experiment tracking + model registry
 - Scorer API docs at <http://localhost:8001/docs>
+- Clinical dashboard at <http://localhost:8501>
 
 ---
 
@@ -293,6 +302,38 @@ engine.evaluate(AccessRequest(
 ```
 
 **Why this layer matters:** the entire platform — OMOP warehouse, streaming pipeline, ML scorer — can be HIPAA-compliant without any of them knowing about encryption keys, audit logs, or role policies. They just call into the governance layer. Swap the local key manager for AWS KMS in prod, swap the DuckDB audit backend for Iceberg on S3, and the entire system is production-grade HIPAA.
+
+---
+
+## 🖥️ The Clinical Dashboard (Module 4)
+
+Streamlit UI over the real-time pipeline. Three views, all read-only, all auto-refreshing.
+
+```bash
+streamlit run app/dashboard/clinical_dashboard.py --server.port 8501
+```
+
+**Live Risk Board** — rolling buffer of the last 200 readmission predictions from `healthcare.predictions`. Histogram of risk scores, count of high-risk patients, per-patient SHAP top-5 features. Refreshes every 5s.
+
+**Patient Detail** — pick a patient, see their demographics (from OMOP), conditions, recent visits, and recent streaming vitals — alongside their latest readmission risk score. Joins OMOP + streaming silver in one view.
+
+**Pipeline Health** — row counts in OMOP + streaming silver, MLflow Production model version, Kafka consumer state. The "is the pipeline running?" single pane of glass.
+
+---
+
+## 🎼 The End-to-End Flow (Prefect 3.x)
+
+Wires the four modules together as a single orchestrable flow:
+
+```bash
+python prefect_flows/real_time_healthcare_flow.py
+# OR as a Prefect deployment:
+prefect deploy prefect_flows/real_time_healthcare_flow.py:real_time_healthcare_flow
+```
+
+Tasks: ensure topics → seed OMOP → start producer + consumer + IoT sim → start ML scorer → start dashboard → health check. The flow has a graceful shutdown handler and a quick health check that verifies topics are actually receiving messages.
+
+**The whole platform, one command.** In production, the flow is what gets deployed and scheduled — each module is a separable concern, but the flow is what makes them a pipeline.
 
 ---
 
